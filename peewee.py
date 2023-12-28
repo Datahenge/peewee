@@ -69,6 +69,30 @@ except ImportError:
     except ImportError:
         mysql = None
 
+import inspect
+
+def whatis(message):
+	"""
+	This function can be called to assist in debugging, showing an object's value, type, and call stack.
+	"""
+	inspected_stack = inspect.stack()
+
+	direct_caller = inspected_stack[1]
+	direct_caller_linenum = direct_caller[2]
+
+	parent_caller = inspected_stack[2]
+	parent_caller_function = parent_caller[3]
+	parent_caller_path = parent_caller[1]
+	parent_caller_line = parent_caller[2]
+
+	message_type = str(type(message)).replace('<', '').replace('>', '')
+	msg = "---> DEBUG (dbsync.whatis)\n"
+	msg += f"* Initiated on Line: {direct_caller_linenum}"
+	msg += f"\n  * Value: {message}\n  * Type: {message_type}"
+	msg += f"\n  * Caller: {parent_caller_function}"
+	msg += f"\n  * Caller Path: {parent_caller_path}\n  * Caller Line: {parent_caller_line}\n"
+	print(msg)
+
 
 __version__ = '3.17.0'
 __all__ = [
@@ -655,12 +679,20 @@ class Context(object):
         yield
         self.alias_manager.pop()
 
-    def sql(self, obj):
+    def sql(self, obj, debug_mode=False):
+
+        if debug_mode:
+            whatis(obj)
         if isinstance(obj, (Node, Context)):
+            # Entity also gets caught here, and is used by Table
+            # NodeList also gets caught here, and is used by Column
+            dprint("Context sql() Option 1: obj is an instance of Node or Context.", debug_mode)
             return obj.__sql__(self)
         elif is_model(obj):
+            dprint("Context sql() Option 2: obj is a Model", debug_mode)
             return obj._meta.table.__sql__(self)
         else:
+            dprint("Context sql() Option 3", debug_mode)
             return self.sql(Value(obj))
 
     def literal(self, keyword):
@@ -1046,6 +1078,13 @@ class Table(_HashableSource, BaseTable):
     def __sql__(self, ctx):
         if ctx.scope == SCOPE_VALUES:
             # Return the quoted table name.
+
+            # Datahenge: If self._database is a BigQuery database, then wrap schema + table name in backticks
+            #     'self._path' is a tuple of single-quoted Strings.  Returns a Context
+            if hasattr(self._database, 'is_big_query') and self._database.is_big_query:
+                print(f"Table.__sql__, BigQuery in play, ctx._sql = {ctx._sql}")
+                return ctx.literal(f"`{self._path[0]}.{self._path[1]}`")
+
             return ctx.sql(Entity(*self._path))
 
         if self._alias:
@@ -1602,7 +1641,10 @@ class Entity(ColumnBase):
         return hash((self.__class__.__name__, tuple(self._path)))
 
     def __sql__(self, ctx):
-        return ctx.literal(quote(self._path, ctx.state.quote or '""'))
+        # Datahenge: For Tables, self._path is Schema + TableName
+        # Datahenge: Note that for BigQuery columns, the ctx.state.quote is '``'
+        result = ctx.literal(quote(path=self._path, quote_chars=ctx.state.quote or '""'))
+        return result
 
 
 class SQL(ColumnBase):
@@ -1872,18 +1914,25 @@ class NodeList(ColumnBase):
             return ctx.literal('()') if self.parens else ctx
         with ctx(parentheses=self.parens):
             for i in range(n_nodes - 1):
-                ctx.sql(self.nodes[i])
+                # Datahenge: Each node could be a peewee.Entity, peewee.SQL, or peewee.NodeList
+                ctx.sql(self.nodes[i])  # Datahenge: Here is where a Column(Entity) is wrapped in double-quotations...
                 ctx.literal(self.glue)
             ctx.sql(self.nodes[n_nodes - 1])
         return ctx
 
 
 def CommaNodeList(nodes):
+    """
+    Just a wrapper for calling NodeList with a specific set of arguments.
+    """    
     return NodeList(nodes, ', ')
 
 
 def EnclosedNodeList(nodes):
-    return NodeList(nodes, ', ', True)
+    """
+    Just a wrapper for calling NodeList with a specific set of arguments.
+    """
+    return NodeList(nodes, glue=', ', parens=True)
 
 
 class _Namespace(Node):
@@ -3292,10 +3341,22 @@ class Database(_callable_context_manager):
         return cursor
 
     def execute(self, query, commit=None, **context_options):
+        """
+        Given a Context with a _sql tuple, execute a SQL statement.
+        """
+        # Datahenge
+        #   The argument 'query' appears to be a Context class instance.
+        #   Within that Context, 'query._sql' is a List of Strings.
+        #   NOTE: This List already has the improperly quoted Table + Schema for BigQuery.
+
+        # print(f"Incoming SQL arguments:\n{query._sql}")
+
         if commit is not None:
             __deprecated__('"commit" has been deprecated and is a no-op.')
+
         ctx = self.get_sql_context(**context_options)
-        sql, params = ctx.sql(query).query()
+        sql, params = ctx.sql(query).query()  # Tuples cannot be annotated.  'sql' is a String, 'list' is a List
+        
         return self.execute_sql(sql, params)
 
     def get_context_options(self):
@@ -3314,7 +3375,7 @@ class Database(_callable_context_manager):
             'nulls_ordering': self.nulls_ordering,
         }
 
-    def get_sql_context(self, **context_options):
+    def get_sql_context(self, **context_options) -> Context:
         context = self.get_context_options()
         if context_options:
             context.update(context_options)
@@ -5929,13 +5990,24 @@ class SchemaManager(object):
     def _create_context(self):
         return self.database.get_sql_context(**self.context_options)
 
-    def _create_table(self, safe=True, **options):
+    def _create_table(self, safe=True, **options) -> Context:
+        """
+        Create the DDL statement for adding a new SQL table.
+        """
+        print(f"\nGenerating a 'Create Table' context for Database = {self.database}, Model = {self.model}")
+
         is_temp = options.pop('temporary', False)
         ctx = self._create_context()
+
         ctx.literal('CREATE TEMPORARY TABLE ' if is_temp else 'CREATE TABLE ')
         if safe:
             ctx.literal('IF NOT EXISTS ')
-        ctx.sql(self.model).literal(' ')
+
+        # Note: 'self.model' is peewee.ModelBase, containing a Schema + Table name
+        #       When you pass a ModelBase to ctx.sql(), it returns a List like this:
+        #       ['"dw"."dim_customer"', ' ']        
+        ctx.sql(self.model, debug_mode=False).literal(' ')  # Note: 'model' is peewee.ModelBase, containing a Schema + Table name
+        # print(f"_create_table(), ctx._sql = {ctx._sql}")
 
         columns = []
         constraints = []
@@ -5951,11 +6023,14 @@ class SchemaManager(object):
             if isinstance(field, ForeignKeyField) and not field.deferred:
                 constraints.append(field.foreign_key_constraint())
 
+        # columns is a List of peewee.NodeList objects
+
         if meta.constraints:
             constraints.extend(meta.constraints)
 
         constraints.extend(self._create_table_option_sql(options))
-        ctx.sql(EnclosedNodeList(columns + constraints))
+
+        ctx.sql(EnclosedNodeList(columns + constraints), debug_mode=False)  # this is where Columns are appended to ctx._sql as a List of Strings
 
         if meta.table_settings is not None:
             table_settings = ensure_tuple(meta.table_settings)
@@ -5969,6 +6044,12 @@ class SchemaManager(object):
         if meta.without_rowid: extra_opts.append('WITHOUT ROWID')
         if extra_opts:
             ctx.literal(' %s' % ', '.join(extra_opts))
+
+        # print("Result (List) of _create_table:")
+        # print(ctx._sql)
+
+        print("Result (String) of _create_table:")
+        print("".join(ctx._sql))
         return ctx
 
     def _create_table_option_sql(self, options):
@@ -8171,3 +8252,9 @@ def prefetch(sq, *subqueries, **kwargs):
                     rel.populate_instance(instance, deps[rel.model])
 
     return list(pq.query)
+
+
+def dprint(message, condition):
+    if not condition:
+        return
+    print(message)

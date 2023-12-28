@@ -1,0 +1,37 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"editor.detectIndentation": false,
+		"editor.insertSpaces": true,
+		"editor.parameterHints.enabled": false,
+		"editor.quickSuggestions": {
+			"comments": "off",
+			"strings": "off",
+			"other": "off"
+		},
+		"editor.wordBasedSuggestions": false,
+		"javascript.suggest.names": false,
+		"python.defaultInterpreterPath": "../dbsync_venv.d/bin/python",
+		"python.linting.enabled": true,
+		"python.linting.lintOnSave": true,
+		"python.linting.pylintEnabled": true,
+		"python.linting.pylintPath": "../dbsync_venv.d/bin/pylint",
+		"python.formatting.provider": "none",
+		"python.formatting.autopep8Path": "",
+		"files.exclude": {
+			"build": true,
+			"dbsync_venv.d": true,
+			"activate": true,
+			"**/__pycache__": true,
+			"**/.git": true,         // this is a default value
+			"**/.DS_Store": true,    // this is a default value
+			"**/*.egg-info": true,
+			"**/.pylintrc": true,
+			".ipynb_checkpoints": true
+		}
+	}
+}
