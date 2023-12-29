@@ -1082,7 +1082,7 @@ class Table(_HashableSource, BaseTable):
             # Datahenge: If self._database is a BigQuery database, then wrap schema + table name in backticks
             #     'self._path' is a tuple of single-quoted Strings.  Returns a Context
             if hasattr(self._database, 'is_big_query') and self._database.is_big_query:
-                print(f"Table.__sql__, BigQuery in play, ctx._sql = {ctx._sql}")
+                # print(f"Table.__sql__, BigQuery in play, ctx._sql = {ctx._sql}")
                 return ctx.literal(f"`{self._path[0]}.{self._path[1]}`")
 
             return ctx.sql(Entity(*self._path))
@@ -4901,7 +4901,8 @@ class Field(ColumnBase):
         else:
             return SQL(column_type)
 
-    def ddl(self, ctx):
+    # Datahenge: Adding a 'database_type' to support different Google BigQuery syntax
+    def ddl(self, ctx, database_type):
         accum = [Entity(self.column_name)]
         data_type = self.ddl_datatype(ctx)
         if data_type:
@@ -4911,7 +4912,10 @@ class Field(ColumnBase):
         if not self.null:
             accum.append(SQL('NOT NULL'))
         if self.primary_key:
-            accum.append(SQL('PRIMARY KEY'))
+            if database_type == 'BIGQUERY':
+                accum.append(SQL('PRIMARY KEY NOT ENFORCED'))
+            else:
+                accum.append(SQL('PRIMARY KEY'))
         if self.sequence:
             accum.append(SQL("DEFAULT NEXTVAL('%s')" % self.sequence))
         if self.constraints:
@@ -5987,6 +5991,12 @@ class SchemaManager(object):
     def database(self, value):
         self._database = value
 
+    def _get_database_type(self):
+
+        if hasattr(self.database, 'is_big_query') and self.database.is_big_query:
+            return 'BIGQUERY'
+        return None
+
     def _create_context(self):
         return self.database.get_sql_context(**self.context_options)
 
@@ -6015,11 +6025,17 @@ class SchemaManager(object):
         if meta.composite_key:
             pk_columns = [meta.fields[field_name].column
                           for field_name in meta.primary_key.field_names]
-            constraints.append(NodeList((SQL('PRIMARY KEY'),
-                                         EnclosedNodeList(pk_columns))))
+
+            # Datahenge:  Google BigQuery primary keys must include syntax 'NOT ENFORCED'
+            if self._get_database_type() == 'BIGQUERY':
+                constraints.append(NodeList((SQL('PRIMARY KEY NOT ENFORCED'),
+                                            EnclosedNodeList(pk_columns))))
+            else:
+                constraints.append(NodeList((SQL('PRIMARY KEY'),
+                                            EnclosedNodeList(pk_columns))))
 
         for field in meta.sorted_fields:
-            columns.append(field.ddl(ctx))
+            columns.append(field.ddl(ctx, self._get_database_type()))
             if isinstance(field, ForeignKeyField) and not field.deferred:
                 constraints.append(field.foreign_key_constraint())
 

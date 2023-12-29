@@ -101,7 +101,9 @@ peewee.egg-info/not-zip-safe
 peewee.egg-info/top_level.txt
 playhouse/README.md
 playhouse/__init__.py
+playhouse/_sqlite_ext.c
 playhouse/_sqlite_ext.pyx
+playhouse/_sqlite_udf.c
 playhouse/_sqlite_udf.pyx
 playhouse/apsw_ext.py
 playhouse/cockroachdb.py

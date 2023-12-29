@@ -13,3 +13,4 @@ closure.so
 lsm.so
 regexp.so
 .vscode
+pyvenv.d

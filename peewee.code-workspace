@@ -15,11 +15,11 @@
 		},
 		"editor.wordBasedSuggestions": false,
 		"javascript.suggest.names": false,
-		"python.defaultInterpreterPath": "../dbsync_venv.d/bin/python",
+		"python.defaultInterpreterPath": "./dbsync_venv.d/bin/python",
 		"python.linting.enabled": true,
 		"python.linting.lintOnSave": true,
 		"python.linting.pylintEnabled": true,
-		"python.linting.pylintPath": "../dbsync_venv.d/bin/pylint",
+		"python.linting.pylintPath": "./dbsync_venv.d/bin/pylint",
 		"python.formatting.provider": "none",
 		"python.formatting.autopep8Path": "",
 		"files.exclude": {
