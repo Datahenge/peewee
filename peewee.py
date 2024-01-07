@@ -3569,6 +3569,9 @@ class Database(_callable_context_manager):
     def get_noop_select(self, ctx):
         return ctx.sql(Select().columns(SQL('0')).where(SQL('0')))
 
+    def get_dialect(self):
+        raise NotImplementedError("Function get_dialect() not implemented.")
+
     @property
     def Model(self):
         if not hasattr(self, '_Model'):
@@ -4218,6 +4221,8 @@ class PostgresqlDatabase(Database):
     def set_time_zone(self, timezone):
         self.execute_sql('set time zone "%s";' % timezone)
 
+    def get_dialect(self):
+        return 'postgresql'
 
 class MySQLDatabase(Database):
     field_types = {
@@ -6017,7 +6022,8 @@ class SchemaManager(object):
         #       When you pass a ModelBase to ctx.sql(), it returns a List like this:
         #       ['"dw"."dim_customer"', ' ']        
         ctx.sql(self.model, debug_mode=False).literal(' ')  # Note: 'model' is peewee.ModelBase, containing a Schema + Table name
-        # print(f"_create_table(), ctx._sql = {ctx._sql}")
+        
+        print(f"_create_table(), ctx._sql, line 6021 = {ctx._sql}")
 
         columns = []
         constraints = []
@@ -6066,6 +6072,7 @@ class SchemaManager(object):
 
         print("Result (String) of _create_table:")
         print("".join(ctx._sql))
+
         return ctx
 
     def _create_table_option_sql(self, options):
@@ -7157,6 +7164,11 @@ class Model(with_metaclass(ModelBase, Node)):
         else:
             cls._meta.indexes.append(ModelIndex(cls, fields, **kwargs))
 
+    def get_dialect(self):
+		# Datahenge
+        if not self._database:
+            return None
+        return self._database.get_dialect()
 
 class ModelAlias(Node):
     """Provide a separate reference to a model in a query."""
